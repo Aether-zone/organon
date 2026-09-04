@@ -360,13 +360,97 @@ Three things are deliberate:
 ## Peer dependencies
 
 All required, none optional: `@nestjs/common`, `@nestjs/core`, `@nestjs/config`,
-`@nestjs/passport`, `passport`, `passport-jwt`, `reflect-metadata`, `rxjs` and
-`zod`.
+`@nestjs/passport`, `passport`, `passport-jwt`, `@golevelup/nestjs-rabbitmq`,
+`reflect-metadata`, `rxjs` and `zod`.
 
-The passport three are required because the root barrel re-exports `auth/`,
-which imports them as values — so requiring this package requires them, even
-for a consumer that only wants a problem filter. Giving the token vocabulary
-its own entry point would buy that back.
+The passport three and the RabbitMQ client are required for the same reason:
+the root barrel re-exports `auth/` and `messaging/`, which import them as
+values, so requiring this package requires them — even for a consumer that only
+wants a problem filter, and even for one that never touches a queue. Splitting
+the entry points is what would buy that back, and the cost grows with each part
+that has a client library behind it.
+
+`@golevelup/nestjs-rabbitmq` asks for `@nestjs/common` and `@nestjs/core`
+`^11.1.21` where this package asks for `^11.0.1`. A consumer on an earlier 11.x
+will see an unmet-peer warning from it.
+
+## Events over RabbitMQ
+
+`RabbitMqModule` wraps [`@golevelup/nestjs-rabbitmq`][golevelup] rather than
+replacing it: `@RabbitSubscribe`, `AmqpConnection` and the rest are that
+package's and are used directly.
+
+[golevelup]: https://www.npmjs.com/package/@golevelup/nestjs-rabbitmq
+
+```ts
+RabbitMqModule.registerAsync({
+  inject: [ENV],
+  useFactory: (env: Env) => ({ uri: env.RABBITMQ_URI }),
+});
+```
+
+| Option | |
+| --- | --- |
+| `uri` | `amqp://user:pass@host:5672`, or a vhost URL. |
+| `exchange` | The topic exchange events go to. `aether-zone` by default. |
+| `prefetch` | Messages a consumer holds unacknowledged at once. `1`. |
+| `connectTimeoutMs` | Wait this long for the broker before finishing the boot; `false` to start anyway and connect in the background. |
+
+Publish with the routing key and the caller's token:
+
+```ts
+await this.events.publish('recording.stored', { recordingId }, accessToken);
+```
+
+Subscribe with the package's own decorator:
+
+```ts
+@RabbitSubscribe({
+  exchange: 'aether-zone',
+  routingKey: 'recording.*',
+  queue: 'transcription.recordings',
+})
+async onRecording(event: RecordingStoredEvent) {}
+```
+
+Name the queue. An anonymous one is exclusive and vanishes with the process, so
+a restart loses whatever arrived meanwhile.
+
+### The envelope
+
+Every event carries `id`, `occurredAt` and an `accessToken`, filled in by
+`EventPublisher` so no publisher has to remember them:
+
+```ts
+interface RabbitEvent {
+  id: string;          // unique per publish; survives a redelivery
+  occurredAt: string;  // when it happened, not when it was delivered
+  accessToken: string; // whoever caused it
+}
+```
+
+The token is there because work that starts from an event has no request to
+borrow one from. Without it a consumer calling another service must act as
+itself, which loses which person the work was for and needs an authority of its
+own for something a person asked for.
+
+Three things follow, and none are theoretical:
+
+- **A token in a message is a credential in a queue.** It is written to the
+  broker's disk for a durable queue, readable by anything that can read the
+  queue, and lands in the dead-letter queue if the consumer keeps failing.
+  Broker access is token access; grant it accordingly.
+- **It expires.** A message that waits — a backlog, a retry, an outage — can be
+  delivered with a token no longer worth presenting. `isExpired(event)` answers
+  that, reading `exp` without verifying the signature, which is all that is
+  needed to decide whether presenting it is worth trying. A consumer that finds
+  one should fall back to its own credentials or give up, not retry forever.
+- **It is not proof of anything by itself.** A consumer acting on its claims
+  must verify it, exactly as it would a token from an HTTP header.
+
+`persistent` is set on every publish, so an event outlives a broker restart —
+the point of sending it rather than doing the work inline. Delivery is
+at-least-once: `id` is what a consumer deduplicates on.
 
 ## Health
 

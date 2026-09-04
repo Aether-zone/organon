@@ -14,3 +14,4 @@ export * from './problem/index.js';
 export * from './validation/index.js';
 export * from './page/index.js';
 export * from './logging/index.js';
+export * from './messaging/index.js';
