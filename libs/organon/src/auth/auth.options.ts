@@ -37,16 +37,6 @@ export const withAuthDefaults = (
   tokenType: config.tokenType ?? ACCESS_TOKEN_TYPE,
 });
 
-/**
- * A module configured from something that has to be resolved first — usually
- * a `ConfigService`.
- *
- * Declared here rather than imported so this package depends on Nest and
- * nothing else; every Nest codebase grows its own copy of this type, and one
- * more would be a dependency for four lines.
- */
-export interface AsyncModuleConfig<T> {
-  imports?: unknown[];
-  inject?: unknown[];
-  useFactory: (...args: never[]) => T | Promise<T>;
-}
+// Re-exported for the modules in this folder that take it; the definition
+// lives with the rest of the module-wiring types.
+export { type AsyncModuleConfig } from '../config/async-module-config.js';

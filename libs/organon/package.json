@@ -1,6 +1,6 @@
 {
   "name": "@aether-zone/organon",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared NestJS building blocks for aether-zone: RFC 9457 problem responses, and the pistis resource-server contract and guard.",
   "license": "MIT",
   "type": "module",
@@ -43,17 +43,6 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^4.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@nestjs/passport": {
-      "optional": true
-    },
-    "passport": {
-      "optional": true
-    },
-    "passport-jwt": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "@nestjs/common": "^11.0.1",

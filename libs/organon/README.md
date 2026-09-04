@@ -172,7 +172,16 @@ Invalid environment configuration:
 `{ logger: false }` there is nothing left to print it and you get a silent exit
 1. Pass `abortOnError: false` to handle the rejection yourself.
 
-`@nestjs/config` is a required peer dependency.
+## Peer dependencies
+
+All required, none optional: `@nestjs/common`, `@nestjs/core`, `@nestjs/config`,
+`@nestjs/passport`, `passport`, `passport-jwt`, `reflect-metadata`, `rxjs` and
+`zod`.
+
+The passport three are required because the root barrel re-exports `auth/`,
+which imports them as values — so requiring this package requires them, even
+for a consumer that only wants a problem filter. Giving the token vocabulary
+its own entry point would buy that back.
 
 ## Health
 
