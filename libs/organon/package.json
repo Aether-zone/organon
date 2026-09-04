@@ -1,7 +1,7 @@
 {
   "name": "@aether-zone/organon",
-  "version": "0.3.0",
-  "description": "Shared NestJS building blocks for aether-zone: RFC 9457 problem responses, and the pistis resource-server contract and guard.",
+  "version": "0.4.0",
+  "description": "Shared NestJS building blocks for aether-zone: RFC 9457 problem responses, the pistis resource-server contract and guard, and RabbitMQ events.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -34,6 +34,7 @@
     "test": "jest"
   },
   "peerDependencies": {
+    "@golevelup/nestjs-rabbitmq": "^9.0.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.1",
@@ -45,6 +46,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@golevelup/nestjs-rabbitmq": "^9.0.2",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
