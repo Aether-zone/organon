@@ -8,20 +8,21 @@ library, and the workspace exists to build, test and publish them.
 
 ## Layout
 
-`libs/organon` is the only package. It has **three entry points**, because its
-three parts do not need the same dependencies:
+`libs/organon` is the only package, and it has **one entry point**:
 
 | Import | What it is | Needs |
 | --- | --- | --- |
-| `@aether-zone/organon` | NestJS building blocks, including RFC 9457 problem responses | Nest |
-| `@aether-zone/organon/pistis` | The token vocabulary a resource server needs to accept pistis access tokens | Nest + `zod` |
-| `@aether-zone/organon/pistis-nest` | Makes a NestJS service a resource server for pistis | Nest + `zod` + passport |
+| `@aether-zone/organon` | NestJS building blocks, RFC 9457 problem responses, and the pistis resource-server contract and guard | Nest + `zod` + passport |
 
-`zod` and the passport packages are **optional** peer dependencies. Splitting
-the entry points is what makes that work: re-exporting everything from the root
-would make importing a problem filter load `passport-jwt`, and pistis — which
-consumes the claim vocabulary and deliberately has no passport — could not use
-this package at all.
+Every peer dependency is therefore **required**, including the passport three.
+The root barrel re-exports `auth/`, which imports them as values, so requiring
+this package requires them even for a consumer that only wants a problem
+filter — and pistis itself, which consumes the claim vocabulary and
+deliberately has no passport, cannot use this package at all.
+
+Splitting the token vocabulary into its own entry point is what would buy that
+back. It was documented here before it existed; that claim has been removed
+rather than left standing, and the split remains worth doing.
 
 Architecture decisions live in `docs/adr/`.
 
