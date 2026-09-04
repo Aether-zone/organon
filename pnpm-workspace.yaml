@@ -1,2 +1,11 @@
 packages:
   - 'libs/*'
+
+# pnpm 10 runs no dependency lifecycle scripts unless they are named. @swc/core
+# is what makes tsup emit decorator metadata — without it the Nest providers in
+# this library build without `design:paramtypes` and fail to resolve at runtime.
+onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - '@swc/core'
+  - esbuild
+

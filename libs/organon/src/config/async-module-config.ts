@@ -10,8 +10,10 @@ import {
  * Modules take their configuration from a factory so they stay unaware of
  * environment variable names — the application wires those up.
  */
-export interface AsyncModuleConfig<TConfig>
-  extends Pick<ModuleMetadata, 'imports'> {
+export interface AsyncModuleConfig<TConfig> extends Pick<
+  ModuleMetadata,
+  'imports'
+> {
   inject?: (InjectionToken | OptionalFactoryDependency)[];
   /*
    * The arguments are whatever `inject` resolves to, which is only known where
