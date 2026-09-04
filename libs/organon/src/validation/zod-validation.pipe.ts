@@ -75,9 +75,10 @@ const describe = (type: Paramtype): string =>
  * path it was broken at, because a client marking up form fields needs them
  * apart rather than joined into a sentence.
  */
-export class ZodValidationPipe<TOutput, TInput = unknown>
-  implements PipeTransform<TInput, Promise<TOutput>>
-{
+export class ZodValidationPipe<
+  TOutput,
+  TInput = unknown,
+> implements PipeTransform<TInput, Promise<TOutput>> {
   constructor(
     private readonly schema: ZodType<TOutput, TInput>,
     private readonly options: ZodValidationOptions = {},
