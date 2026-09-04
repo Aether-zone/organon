@@ -172,6 +172,191 @@ Invalid environment configuration:
 `{ logger: false }` there is nothing left to print it and you get a silent exit
 1. Pass `abortOnError: false` to handle the rejection yourself.
 
+## Accepting pistis tokens
+
+`PistisAuthModule` makes a service a resource server for the pistis
+authorization server: it accepts the bearer tokens pistis minted, and does
+nothing else.
+
+```ts
+import { PistisAuthModule, jwksUriFor } from '@aether-zone/organon';
+
+const issuer = 'https://pistis.example.com';
+
+@Module({
+  imports: [
+    PistisAuthModule.register({ issuer, audience: issuer, jwksUri: jwksUriFor(issuer) }),
+  ],
+})
+export class AppModule {}
+```
+
+`registerAsync` takes the same options from a factory, which is what reading
+them out of the validated environment needs:
+
+```ts
+PistisAuthModule.registerAsync({
+  inject: [ConfigService],
+  useFactory: (config: EnvService<Env>) => {
+    const issuer = config.get('OAUTH_ISSUER', { infer: true });
+
+    return {
+      issuer,
+      audience: config.get('OAUTH_AUDIENCE', { infer: true }) ?? issuer,
+      jwksUri: config.get('OAUTH_JWKS_URI', { infer: true }) ?? jwksUriFor(issuer),
+    };
+  },
+});
+```
+
+| Option | |
+| --- | --- |
+| `issuer` | The `iss` every token must carry — pistis's public origin, not this service's. A token from anywhere else is refused even if its signature is good. |
+| `audience` | The `aud` every token must carry. pistis defaults this to its issuer. |
+| `jwksUri` | Where pistis publishes its public signing keys. `jwksUriFor(issuer)` derives it the way RFC 8414 lays it out, so a deployment normally configures the issuer alone. |
+| `tokenType` | The `typ` the token header must carry. Defaults to `at+jwt`. |
+
+**It is not part of `OrganonModule.forRoot()`.** Health, logging and problem
+rendering all have a default worth having; an issuer does not, and a service
+that is not a resource server should not be made to name one.
+
+**There is nothing to sign in *to*.** A resource server issues no tokens, stores
+no passwords and keeps no user table. Signing in happens in whatever web app
+runs the authorization code flow against pistis; what arrives here is the
+result. The only identity worth keeping is the token's `sub` — names and email
+addresses live in pistis.
+
+Every route requires a token, because the module registers its guard as an
+`APP_GUARD`. `@Public()` opts one out:
+
+```ts
+@Public()
+@Get('version')
+version() {
+  return { version: process.env.APP_VERSION };
+}
+```
+
+`@CurrentUser()` hands the handler what the token resolved to:
+
+```ts
+@Get('me')
+me(@CurrentUser() principal: Principal) {
+  return { id: principal.id, scopes: principal.scopes };
+}
+```
+
+```ts
+interface Principal {
+  id: string;                    // the token's `sub`
+  clientId: string;              // which registered client it was issued to
+  scopes: string[];              // already split out of the space-delimited claim
+  organizations: Record<string, OrganizationMembershipClaim>;
+}
+```
+
+`hasScopes(principal, 'meetings:write')` answers the scope question;
+`parseScope` and `formatScope` are there for anything that has to read or write
+the claim itself.
+
+Five things are deliberate:
+
+- **Validation is offline.** The signature is checked against pistis's published
+  JWKS and nothing else is asked of it, so a request costs no round trip to the
+  authorization server. The cost is that a revoked token stays good until it
+  expires — pistis keeps a row per `jti` precisely so it *can* answer that,
+  through `/oauth/introspect`, if revocation ever needs to take effect sooner.
+- **`RS256` is pinned rather than read from the token's own `alg`.** That is what
+  closes `alg: none` and the RSA-to-HMAC confusion attack, and it is the same
+  rule pistis applies when verifying.
+- **The header's `typ` is checked too.** A pistis *session* token is signed by
+  the same key, so the signature alone does not tell the two apart. Refusing
+  anything but `at+jwt` means a widened `audience` cannot quietly turn a session
+  into an access token.
+- **The default is closed.** A new controller is authenticated because nobody
+  did anything, which is the only default worth having.
+- **Signing keys are cached by `kid` and refetched when a token names an unknown
+  one**, which makes key rotation a non-event: the first token signed by a new
+  key misses, triggers one fetch, and every later token hits. An unknown `kid`
+  cannot be used to hammer pistis — there is a floor between refetches.
+
+### Acting in an organization
+
+A token carries the subject's memberships in its `orgs` claim, so deciding
+whether a request may act in the organization it names takes no query and no
+call back to pistis.
+
+```ts
+@Controller('organizations/:organizationId/meetings')
+@UseGuards(OrganizationGuard)
+export class MeetingController {
+
+  @Get()
+  list(@CurrentActor() actor: Actor) {
+    return this.meetings.list(actor);
+  }
+
+  @Delete(':id')
+  @RequireRole('admin')
+  remove(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.meetings.remove(actor, id);
+  }
+}
+```
+
+`OrganizationGuard` reads the organization out of the path, refuses a caller who
+may not act in it, and leaves an `Actor` for `@CurrentActor()`. `@RequireRole()`
+raises the bar from plain membership; absent, membership is what is required.
+
+```ts
+interface Actor extends Principal {
+  organizationId: string;      // the organization this request named
+  role: MembershipRole;        // 'owner' | 'admin' | 'member'
+  organizationName: string;    // display only, and as stale as the token
+}
+```
+
+`Principal` says who the caller is and everywhere they *could* act; an `Actor`
+narrows that to the one organization at hand. A service that takes an `Actor`
+rather than a `Principal` and an id cannot filter a query by the wrong
+organization: there is only one to reach for.
+
+The guard injects nothing but `Reflector`, so a module declaring an
+organization-scoped controller imports nothing to use it —
+`@UseGuards(OrganizationGuard)` is the whole of the wiring.
+
+`OrganizationGuard` expects `:organizationId`. For a service that names it
+something else, `organizationGuardFor` builds the same guard around another
+parameter — once, at module scope, because Nest caches guard instances per
+class and calling it inside `@UseGuards()` would make a new one per controller:
+
+```ts
+const TenantGuard = organizationGuardFor('tenantId');
+```
+
+Underneath is `actorIn(principal, organizationId, atLeast?)`, which is the whole
+decision without the request: it answers `null` when the caller may not act
+there, and an `Actor` when they may. Reach for it directly outside a controller
+— resolving an organization from a message body rather than a path, say. Where
+the organization id *comes from* is deliberately the caller's problem, which is
+what lets the guard above be the only piece that knows about URLs.
+
+Three things are deliberate:
+
+- **An unknown organization and someone else's give the same 403.** A 404 for one
+  and a 403 for the other would answer "does this organization exist" for anyone
+  who cared to ask — and for the same reason, `actorIn` returns the same `null`
+  whether the caller is not a member or merely not senior enough. Use
+  `membershipIn` and `roleIn` where you genuinely need to tell them apart.
+- **The claim is as stale as the token.** Someone removed from an organization
+  keeps access until their client refreshes. pistis re-resolves the map on every
+  issue, refreshes included, so a refresh is what catches a client up. That is
+  the price of not asking pistis on every request, and it is worth naming rather
+  than discovering.
+- **`organizationName` is display only.** A rename in pistis is invisible to an
+  already-issued token, while `role` is the fact every access decision turns on.
+  Never key anything on the name.
+
 ## Peer dependencies
 
 All required, none optional: `@nestjs/common`, `@nestjs/core`, `@nestjs/config`,
