@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "monorepo": true,
+  "root": "libs/organon",
+  "sourceRoot": "libs/organon/src",
+  "projects": {
+    "organon": {
+      "type": "library",
+      "root": "libs/organon",
+      "entryFile": "index",
+      "sourceRoot": "libs/organon/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/organon/tsconfig.lib.json"
+      }
+    }
+  }
+}
