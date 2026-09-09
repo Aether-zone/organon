@@ -1,5 +1,5 @@
 import { RabbitMQModule as GolevelupRabbitMQModule } from '@golevelup/nestjs-rabbitmq';
-import { DynamicModule, Module } from '@nestjs/common';
+import { DynamicModule, Global, Module } from '@nestjs/common';
 
 import { type AsyncModuleConfig } from '../config/async-module-config.js';
 import { EventPublisher } from './event-publisher.js';
@@ -39,7 +39,16 @@ import {
  *
  * The queue is named deliberately: an anonymous one is exclusive and vanishes
  * with the process, so a restart loses whatever arrived meanwhile.
+ *
+ * Global, because publishing is cross-cutting: any module may have something
+ * to announce, and a feature module cannot import this one — it is configured
+ * once at the root, and importing the bare class would give a second
+ * connection with no configuration. Without `@Global` a publisher injected
+ * anywhere but the root fails to resolve at boot, which is a startup crash
+ * rather than something a unit test constructing the service directly would
+ * ever see.
  */
+@Global()
 @Module({})
 export class RabbitMqModule {
   static register(
