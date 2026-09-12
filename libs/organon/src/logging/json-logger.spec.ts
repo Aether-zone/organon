@@ -106,6 +106,69 @@ describe('JsonLogger', () => {
     });
   });
 
+  /*
+   * `logger.error('it failed', cause)` is what nearly every service in the
+   * workspace writes, and it is not Nest's `(message, stack?, context?)` — the
+   * cause lands in the stack slot. Filtering that slot for strings dropped it,
+   * so the line said something had failed and never what.
+   */
+  it('puts the cause in a field of its own and the stack in stack', () => {
+    const { logger, records } = capture();
+
+    logger.error('could not be remembered', new Error('qdrant is away'));
+
+    expect(records[0].cause).toBe('qdrant is away');
+    expect(records[0].stack).toContain('qdrant is away');
+    // The message is left as the caller wrote it.
+    expect(records[0].message).toBe('could not be remembered');
+  });
+
+  /*
+   * The shape Nest actually delivers: a `Logger` instance appends its own
+   * context, so a two-argument call at the site arrives here as three.
+   */
+  it('keeps the context when Nest appends one after the cause', () => {
+    const { logger, records } = capture();
+
+    logger.error('it failed', new Error('boom'), 'ObjectUploadedListener');
+
+    expect(records[0].context).toBe('ObjectUploadedListener');
+    expect(records[0].cause).toBe('boom');
+  });
+
+  it('lets an explicit string stack win over the error’s', () => {
+    // A caller who passed a stack meant it; the cause is still recorded.
+    const { logger, records } = capture();
+
+    logger.error('it failed', 'chosen\nstack', new Error('boom'));
+
+    expect(records[0].stack).toBe('chosen\nstack');
+    expect(records[0].cause).toBe('boom');
+  });
+
+  it('keeps the message of an error that has no stack', () => {
+    const { logger, records } = capture();
+    const bare = new Error('no stack here');
+    delete bare.stack;
+
+    logger.error('it failed', bare);
+
+    expect(records[0].cause).toBe('no stack here');
+    expect(records[0].stack).toContain('no stack here');
+  });
+
+  it('still ignores a trailing value that is neither string nor Error', () => {
+    // An arbitrary object has no agreed place to go, and guessing at one is
+    // how a log grows fields nothing can rely on.
+    const { logger, records } = capture();
+
+    logger.error('it failed', { nope: true });
+
+    expect(records[0].cause).toBeUndefined();
+    expect(records[0].stack).toBeUndefined();
+    expect(records[0].context).toBeUndefined();
+  });
+
   it('takes an Error as the message and keeps its stack', () => {
     const { logger, records } = capture();
 

@@ -1,6 +1,6 @@
 {
   "name": "@aether-zone/organon",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Shared NestJS building blocks for aether-zone: RFC 9457 problem responses, the pistis resource-server contract and guard, and RabbitMQ events.",
   "license": "MIT",
   "type": "module",

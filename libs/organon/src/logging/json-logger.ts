@@ -11,6 +11,8 @@ export interface LogRecord {
   context?: string;
   requestId?: string;
   stack?: string;
+  /** The message of an `Error` passed alongside, as a field of its own. */
+  cause?: string;
   [field: string]: unknown;
 }
 
@@ -77,6 +79,10 @@ export class JsonLogger implements LoggerService {
    * trailing argument there is nothing in the signature to say which it is.
    * A newline decides it: a stack has them, a context — a class name — does
    * not.
+   *
+   * `error(message, cause)` with an `Error` is the other common shape, and the
+   * one nearly every service in the workspace writes. See {@link readTrailing}
+   * for what becomes of it.
    */
   error(message: unknown, ...rest: unknown[]): void {
     this.emit('error', message, rest);
@@ -87,7 +93,7 @@ export class JsonLogger implements LoggerService {
       return;
     }
 
-    const { context, stack } = readTrailing(rest);
+    const { context, stack, cause } = readTrailing(rest);
     const { text, fields } = readMessage(message);
 
     const record: LogRecord = {
@@ -98,6 +104,7 @@ export class JsonLogger implements LoggerService {
       message: text,
       ...(context === undefined ? {} : { context }),
       ...(stack === undefined ? {} : { stack }),
+      ...(cause === undefined ? {} : { cause }),
     };
 
     const requestId = currentRequestId();
@@ -111,29 +118,67 @@ export class JsonLogger implements LoggerService {
 }
 
 /**
- * Splits Nest's trailing arguments into a context and a stack. Anything that
- * is not a string is ignored rather than guessed at.
+ * Splits Nest's trailing arguments into a context, a stack and a cause.
+ *
+ * The strings are Nest's own `(stack?, context?)`, told apart by newlines: a
+ * stack has them, a context — a class name — does not.
+ *
+ * **An `Error` among them is read rather than ignored**, and that is the whole
+ * of the change worth explaining. `logger.error('it failed', cause)` is what
+ * nearly every service in this workspace writes, and it is not Nest's
+ * signature — the cause lands in the `stack` slot, where a filter for strings
+ * dropped it. The line then said something had failed and never what, which is
+ * how a consumer in a retry loop can write thousands of records that are no
+ * help at all.
+ *
+ * The error's own stack goes to `stack`, since it carries the message on its
+ * first line; its message *also* goes to `cause`, as a field of its own. That
+ * duplication is deliberate: this logger renders for an aggregator, where a
+ * field can be searched and grouped, and a reason buried in a multi-line stack
+ * can only be pattern-matched out of prose.
+ *
+ * An explicit string stack still wins, because a caller who passed one meant
+ * it. Only the first error is read; a second is a call site doing something
+ * this cannot guess at. Everything else that is not a string is still ignored
+ * rather than guessed at — an arbitrary object has no agreed place to go.
  */
 function readTrailing(rest: unknown[]): {
   context?: string;
   stack?: string;
+  cause?: string;
 } {
   const strings = rest.filter(
     (entry): entry is string => typeof entry === 'string',
   );
+  const error = rest.find((entry): entry is Error => entry instanceof Error);
+
+  const fromError = error
+    ? {
+        // `?? String(error)` because a stack is optional on an Error, and a
+        // thrown value that has none must not lose its message with it.
+        stack: error.stack ?? String(error),
+        cause: error.message,
+      }
+    : {};
 
   if (strings.length === 0) {
-    return {};
+    return fromError;
   }
 
   if (strings.length === 1) {
     const only = strings[0];
 
-    return only.includes('\n') ? { stack: only } : { context: only };
+    return only.includes('\n')
+      ? { ...fromError, stack: only }
+      : { ...fromError, context: only };
   }
 
   // Nest's own order is (stack, context).
-  return { stack: strings[0], context: strings[strings.length - 1] };
+  return {
+    ...fromError,
+    stack: strings[0],
+    context: strings[strings.length - 1],
+  };
 }
 
 /**
